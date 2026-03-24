@@ -358,7 +358,7 @@ const PALETTES = [
 const ZONE_W    = 780;
 const COLS      = 3;
 const HOST_W    = 230;
-const HOST_H    = 120;
+const HOST_H    = 135;
 const CLUSTER_H = 28;
 const HEADER_H  = 65;
 const PAD       = 12;
@@ -499,6 +499,30 @@ function parseRvtools(wb, siteName) {
     });
   }
 
+  // vInfo → per-VM vCPU data
+  const vcpuByHost = {};
+  const viKey = sheetMap['vinfo'];
+  if (viKey) {
+    const viRows = XLSX.utils.sheet_to_json(wb.Sheets[viKey], { defval: '' });
+    if (viRows.length) {
+      const viHeaders = Object.keys(viRows[0]);
+      const colViHost = findCol(viHeaders, ['Host', 'VM Host']);
+      const colViCpus = findCol(viHeaders, ['CPUs', 'Num CPUs', '# CPUs', 'vCPUs']);
+      if (colViHost && colViCpus) {
+        for (const row of viRows) {
+          const vhName = safe(row[colViHost]);
+          if (!vhName) continue;
+          const vcpus = parseInt(safe(row[colViCpus])) || 0;
+          vcpuByHost[vhName] = (vcpuByHost[vhName] || 0) + vcpus;
+        }
+      }
+    }
+  }
+  // Inject total_vcpus into each host
+  for (const h of hosts) {
+    h.total_vcpus = vcpuByHost[h.hostname] || 0;
+  }
+
   // vSource → vCenter version
   let vcenterVersion = '';
   const vsKey = sheetMap['vsource'];
@@ -546,6 +570,7 @@ function parseLiveOptics(wb, siteName) {
   const loHeaders = Object.keys(hostsRows[0]);
   const loColSockets     = findCol(loHeaders, ['CPU Sockets', 'Sockets']);
   const loColCoresPerCpu = findCol(loHeaders, ['Cores Per Socket', 'Cores per CPU']);
+  const loColVcpus       = findCol(loHeaders, ['Total vCPUs', 'Virtual CPUs', 'vCPUs']);
 
   // Build performance lookup: Host Name → perf row
   const perfMap = {};
@@ -585,6 +610,7 @@ function parseLiveOptics(wb, siteName) {
       svc:      safe(row['Serial No']),
       sockets:        loColSockets     ? (parseInt(safe(row[loColSockets]))     || 0) : 0,
       cores_per_socket: loColCoresPerCpu ? (parseInt(safe(row[loColCoresPerCpu])) || 0) : 0,
+      total_vcpus:    loColVcpus       ? (parseInt(safe(row[loColVcpus]))       || 0) : 0,
     });
   }
 
@@ -647,7 +673,7 @@ function makeRect(id, x, y, w, h, bg, stroke, text = '', fontSize = 12,
 function generateExcalidraw(sites, vcf9Enabled) {
   const elements = [];
   let xCursor = CANVAS_X;
-  const hostH = vcf9Enabled ? 140 : HOST_H;
+  const hostH = vcf9Enabled ? 155 : HOST_H;
 
   for (let idx = 0; idx < sites.length; idx++) {
     const { site_name, clusters, vcenter_version, total_hosts, total_vms } = sites[idx];
@@ -682,12 +708,17 @@ function generateExcalidraw(sites, vcf9Enabled) {
       chosts.forEach((h, i) => {
         const hx = xCursor + PAD + (i % COLS) * (HOST_W + COL_GAP);
         const hy = cy + Math.floor(i / COLS) * (hostH + ROW_GAP);
+        const totalCores = h.sockets * h.cores_per_socket;
+        const ratioStr = (totalCores > 0 && (h.total_vcpus || 0) > 0)
+          ? `vCPU/pCPU: ${(h.total_vcpus / totalCores).toFixed(1)}:1`
+          : 'vCPU/pCPU: —';
         const lines = [
           h.hostname,
           h.model || '—',
           h.svc ? `SVC: ${h.svc}` : 'SVC: —',
           h.esxi ? `ESXi ${h.esxi}` : 'ESXi —',
           `VMs:${h.vms}  CPU:${h.cpu}  Mem:${h.mem}`,
+          ratioStr,
         ];
         if (vcf9Enabled && h.vcf9) lines.push(h.vcf9.label);
         const label = lines.join('\n');
