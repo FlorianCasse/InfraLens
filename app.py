@@ -715,11 +715,20 @@ def generate_excalidraw(sites, vcf9_enabled=False):
         # ── Clusters ──
         cy = y0 + HEADER_H + PAD
         for cname, chosts in clusters.items():
+            # Cluster-level vCPU/pCPU ratio
+            cl_vcpus = sum(h.get("total_vcpus", 0) for h in chosts)
+            cl_cores = sum(h["sockets"] * h["cores_per_socket"] for h in chosts)
+            if cl_cores > 0 and cl_vcpus > 0:
+                cl_ratio = cl_vcpus / cl_cores
+                cl_label = f"{cname}  ·  vCPU/pCPU: {cl_ratio:.1f}:1"
+            else:
+                cl_label = f"{cname}  ·  vCPU/pCPU: —"
+
             # Cluster label bar
             c_id = uid()
             c_els = rect(c_id, x_cursor + PAD, cy, ZONE_W - 2*PAD, CLUSTER_H,
                          bg=p["cluster_bg"], stroke=p["cluster_stroke"],
-                         text=cname, font_size=11, bold=True,
+                         text=cl_label, font_size=11, bold=True,
                          text_color=p["zone_stroke"], rounded=4)
             elements.extend(c_els)
             cy += CLUSTER_H + PAD
