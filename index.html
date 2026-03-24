@@ -700,8 +700,15 @@ function generateExcalidraw(sites, vcf9Enabled) {
     // Clusters
     let cy = y0 + HEADER_H + PAD;
     for (const [cname, chosts] of Object.entries(clusters)) {
+      // Cluster-level vCPU/pCPU ratio
+      const clVcpus = chosts.reduce((s, h) => s + (h.total_vcpus || 0), 0);
+      const clCores = chosts.reduce((s, h) => s + h.sockets * h.cores_per_socket, 0);
+      const clLabel = (clCores > 0 && clVcpus > 0)
+        ? `${cname}  ·  vCPU/pCPU: ${(clVcpus / clCores).toFixed(1)}:1`
+        : `${cname}  ·  vCPU/pCPU: —`;
+
       elements.push(...makeRect(uid(), xCursor + PAD, cy, ZONE_W - 2*PAD, CLUSTER_H,
-        p.cluster_bg, p.cluster_stroke, cname, 11, true, p.zone_stroke, 'middle', 4));
+        p.cluster_bg, p.cluster_stroke, clLabel, 11, true, p.zone_stroke, 'middle', 4));
       cy += CLUSTER_H + PAD;
 
       const rows = Math.ceil(chosts.length / COLS);
