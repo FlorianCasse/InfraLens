@@ -65,7 +65,7 @@ PALETTES = [
 ZONE_W      = 780   # width of each site zone
 COLS        = 3     # hosts per row inside a cluster
 HOST_W      = 230   # host box width
-HOST_H      = 120   # host box height (5 lines)
+HOST_H      = 135   # host box height (6 lines)
 CLUSTER_H   = 28    # cluster header height
 HEADER_H    = 65    # site header height
 PAD         = 12    # padding inside zones
@@ -294,6 +294,28 @@ def parse_rvtools(xls, site_name):
             "cores_per_socket": cores_val,
         })
 
+    # ── vInfo sheet (per-VM vCPU data) ──
+    vcpu_by_host = {}
+    vinfo_sheet = sheet_names_lower.get("vinfo")
+    if vinfo_sheet:
+        vi = xls.parse(vinfo_sheet, header=0)
+        col_vi_host = find_col(vi, ["Host", "VM Host"])
+        col_vi_cpus = find_col(vi, ["CPUs", "Num CPUs", "# CPUs", "vCPUs"])
+        if col_vi_host and col_vi_cpus:
+            for _, row in vi.iterrows():
+                vh_name = safe(row[col_vi_host])
+                if not vh_name:
+                    continue
+                try:
+                    vcpus = int(float(safe(row[col_vi_cpus])))
+                except (ValueError, TypeError):
+                    vcpus = 0
+                vcpu_by_host[vh_name] = vcpu_by_host.get(vh_name, 0) + vcpus
+
+    # Inject total_vcpus into each host
+    for h in hosts:
+        h["total_vcpus"] = vcpu_by_host.get(h["hostname"], 0)
+
     # ── vSource sheet (vCenter version) ──
     vcenter_version = ""
     vsource_sheet = sheet_names_lower.get("vsource")
@@ -337,6 +359,7 @@ def parse_liveoptics(xls, site_name):
 
     col_lo_sockets   = find_col(hosts_df, ["CPU Sockets", "Sockets"])
     col_lo_cores_cpu = find_col(hosts_df, ["Cores Per Socket", "Cores per CPU"])
+    col_lo_vcpus     = find_col(hosts_df, ["Total vCPUs", "Virtual CPUs", "vCPUs"])
 
     # Performance sheet for CPU/Mem %
     perf_map = {}
@@ -383,6 +406,12 @@ def parse_liveoptics(xls, site_name):
                 cores_val = int(float(safe(row[col_lo_cores_cpu])))
             except (ValueError, TypeError):
                 pass
+        vcpus_val = 0
+        if col_lo_vcpus:
+            try:
+                vcpus_val = int(float(safe(row[col_lo_vcpus])))
+            except (ValueError, TypeError):
+                pass
 
         hosts.append({
             "hostname": hostname,
@@ -395,6 +424,7 @@ def parse_liveoptics(xls, site_name):
             "svc":      safe(row.get("Serial No", "")),
             "sockets":          sockets_val,
             "cores_per_socket": cores_val,
+            "total_vcpus":      vcpus_val,
         })
 
     clusters = {}
@@ -646,7 +676,7 @@ def generate_excalidraw(sites, vcf9_enabled=False):
     """sites: list of dicts from parse_rvtools()"""
     elements = []
     x_cursor = CANVAS_X
-    host_h = 140 if vcf9_enabled else HOST_H
+    host_h = 155 if vcf9_enabled else HOST_H
 
     for idx, site in enumerate(sites):
         p = PALETTES[idx % len(PALETTES)]
@@ -703,12 +733,20 @@ def generate_excalidraw(sites, vcf9_enabled=False):
                 hy = cy + row_i * (host_h + ROW_GAP)
 
                 # Build label
+                total_cores = h["sockets"] * h["cores_per_socket"]
+                if total_cores > 0 and h.get("total_vcpus", 0) > 0:
+                    ratio = h["total_vcpus"] / total_cores
+                    ratio_str = f"vCPU/pCPU: {ratio:.1f}:1"
+                else:
+                    ratio_str = "vCPU/pCPU: —"
+
                 lines = [
                     h["hostname"],
                     h["model"] if h["model"] else "—",
                     f"SVC: {h['svc']}" if h["svc"] else "SVC: —",
                     f"ESXi {h['esxi']}" if h["esxi"] else "ESXi —",
                     f"VMs:{h['vms']}  CPU:{h['cpu']}  Mem:{h['mem']}",
+                    ratio_str,
                 ]
                 if vcf9_enabled and "vcf9" in h:
                     lines.append(h["vcf9"]["label"])
