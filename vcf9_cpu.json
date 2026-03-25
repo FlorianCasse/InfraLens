@@ -1,0 +1,19 @@
+{
+  "discontinued": [
+    {"pattern": "Xeon.*D-?15\\d\\d", "family": "Xeon D-1500 (Broadwell-DE)"},
+    {"pattern": "Xeon.*E3-?1[25]\\d\\d.*(v|V) ?5", "family": "Xeon E3 v5 (Skylake-S)"},
+    {"pattern": "Xeon.*E5-?[12468]\\d\\d\\d.*(v|V) ?4", "family": "Xeon E5/E7 v4 (Broadwell-EP)"},
+    {"pattern": "Xeon.*E7-?[48]\\d\\d\\d.*(v|V) ?4", "family": "Xeon E5/E7 v4 (Broadwell-EP)"},
+    {"pattern": "Xeon.*E3-?1\\d\\d\\d.*(v|V) ?6", "family": "Xeon E3 v6 (Kabylake-S)"},
+    {"pattern": "Xeon.*(Platinum 81|Gold 61|Gold 51|Silver 41|Bronze 31)\\d\\d", "family": "Xeon Scalable Gen1 (Skylake-SP)"},
+    {"pattern": "Xeon.*D-?21\\d\\d", "family": "Xeon D-2100 (Skylake-D)"},
+    {"pattern": "Xeon.*W-?21\\d\\d", "family": "Xeon W-2100 (Skylake-W)"}
+  ],
+  "deprecated": [
+    {"pattern": "EPYC ?7[01]\\d\\d", "family": "AMD EPYC 7001 (Naples/Zen)"},
+    {"pattern": "EPYC ?7[23]\\d\\d|EPYC ?7\\w*2\\b", "family": "AMD EPYC 7002 (Rome/Zen2)"},
+    {"pattern": "Xeon.*(Platinum 82|Gold 62|Gold 52|Silver 42|Bronze 32)\\d\\d", "family": "Xeon Scalable Gen2 (Cascade Lake)"},
+    {"pattern": "Xeon.*E-?2[12]\\d\\d", "family": "Xeon E-2100/2200 (Coffee Lake)"},
+    {"pattern": "Atom.*C3\\d\\d\\d", "family": "Atom C3000 (Denverton)"}
+  ]
+}

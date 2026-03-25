@@ -146,6 +146,60 @@ def check_vcf9_compat(model, lookup):
     return {'status': 'incompatible', 'label': '\u274C Not VCF9 Ready'}
 
 
+# ─── CPU Deprecation Check (KB 318697) ────────────────────────────────────
+_cpu_rules_cache = None
+
+
+def load_cpu_rules():
+    global _cpu_rules_cache
+    if _cpu_rules_cache is not None:
+        return _cpu_rules_cache
+    cpu_path = os.path.join(os.path.dirname(__file__), 'vcf9_cpu.json')
+    with open(cpu_path, 'r') as f:
+        _cpu_rules_cache = json.load(f)
+    return _cpu_rules_cache
+
+
+def check_cpu_compat(cpu_type, cpu_rules):
+    """Check CPU type against KB 318697 deprecation/discontinuation lists."""
+    if not cpu_type:
+        return {"status": "unknown", "family": ""}
+    for entry in cpu_rules.get("discontinued", []):
+        if re.search(entry["pattern"], cpu_type, re.I):
+            return {"status": "discontinued", "family": entry["family"]}
+    for entry in cpu_rules.get("deprecated", []):
+        if re.search(entry["pattern"], cpu_type, re.I):
+            return {"status": "deprecated", "family": entry["family"]}
+    return {"status": "ok", "family": ""}
+
+
+def enrich_vcf9_with_cpu(host):
+    """Combine model-based VCF9 check with CPU deprecation status."""
+    vcf9 = host.get("vcf9", {})
+    cpu_info = host.get("cpu_compat", {})
+    cpu_status = cpu_info.get("status", "ok")
+    cpu_family = cpu_info.get("family", "")
+
+    if vcf9.get("status") == "compatible":
+        if cpu_status == "discontinued":
+            vcf9["status"] = "incompatible"
+            vcf9["label"] = f"\u274C CPU Discontinued"
+            vcf9["cpu_status"] = "discontinued"
+            vcf9["cpu_family"] = cpu_family
+        elif cpu_status == "deprecated":
+            vcf9["label"] += f"\n\u26A0\uFE0F CPU Deprecated"
+            vcf9["cpu_status"] = "deprecated"
+            vcf9["cpu_family"] = cpu_family
+        else:
+            vcf9["cpu_status"] = "ok"
+            vcf9["cpu_family"] = ""
+    else:
+        vcf9["cpu_status"] = cpu_status
+        vcf9["cpu_family"] = cpu_family
+
+    host["vcf9"] = vcf9
+
+
 def build_vcf9_report(sites):
     """Build a VCF 9 readiness report from annotated sites."""
     rows = []
@@ -162,6 +216,9 @@ def build_vcf9_report(sites):
                     "esxi": h.get("esxi", ""),
                     "status": vcf9["status"],
                     "label": vcf9["label"],
+                    "cpu_type": h.get("cpu_type", ""),
+                    "cpu_status": vcf9.get("cpu_status", ""),
+                    "cpu_family": vcf9.get("cpu_family", ""),
                 })
                 if vcf9["status"] == "compatible":
                     compatible += 1
@@ -180,16 +237,17 @@ def build_vcf9_report(sites):
 
 def vcf9_report_csv(report):
     """Generate CSV content from a VCF9 readiness report."""
-    lines = ["Site,Cluster,Hostname,Model,ESXi Version,VCF9 Status"]
+    lines = ["Site,Cluster,Hostname,Model,ESXi Version,VCF9 Status,CPU Type,CPU Status,CPU Family"]
     for r in report["rows"]:
-        vals = [r["site"], r["cluster"], r["hostname"], r["model"], r["esxi"], r["label"]]
+        vals = [r["site"], r["cluster"], r["hostname"], r["model"], r["esxi"],
+                r["label"], r.get("cpu_type", ""), r.get("cpu_status", ""), r.get("cpu_family", "")]
         lines.append(",".join(f'"{v}"' for v in vals))
     return "\n".join(lines)
 
 
 def vcf9_report_txt(report):
     """Generate fixed-width text VCF9 readiness report."""
-    hdrs = ["SITE", "CLUSTER", "HOSTNAME", "MODEL", "ESXI_VERSION", "VCF9_STATUS"]
+    hdrs = ["SITE", "CLUSTER", "HOSTNAME", "MODEL", "ESXI_VERSION", "VCF9_STATUS", "CPU_TYPE", "CPU_STATUS"]
     cols = [len(h) for h in hdrs]
     for r in report["rows"]:
         cols[0] = max(cols[0], len(r["site"]))
@@ -198,6 +256,9 @@ def vcf9_report_txt(report):
         cols[3] = max(cols[3], len(r.get("model") or ""))
         cols[4] = max(cols[4], len(r.get("esxi") or ""))
         cols[5] = max(cols[5], len(r["label"]))
+        cpu_col = r.get("cpu_family") or r.get("cpu_status") or ""
+        cols[6] = max(cols[6], len(r.get("cpu_type") or ""))
+        cols[7] = max(cols[7], len(cpu_col))
 
     def pad(s, w):
         return str(s).ljust(w)
@@ -214,6 +275,7 @@ def vcf9_report_txt(report):
         sep_line,
     ]
     for r in report["rows"]:
+        cpu_col = r.get("cpu_family") or r.get("cpu_status") or ""
         lines.append(" ".join([
             pad(r["site"], cols[0]),
             pad(r["cluster"], cols[1]),
@@ -221,6 +283,8 @@ def vcf9_report_txt(report):
             pad(r.get("model") or "", cols[3]),
             pad(r.get("esxi") or "", cols[4]),
             pad(r["label"], cols[5]),
+            pad(r.get("cpu_type") or "", cols[6]),
+            pad(cpu_col, cols[7]),
         ]))
     lines.append("")
     return "\n".join(lines)
@@ -247,6 +311,7 @@ def parse_rvtools(xls, site_name):
     col_svc     = find_col(vh, ["Service Tag", "Serial Number", "SN"])
     col_sockets     = find_col(vh, ["# CPU", "CPUs", "CPU Sockets", "Sockets", "Num CPU"])
     col_cores_cpu   = find_col(vh, ["Cores per CPU", "# Cores per CPU", "Cores Per Socket"])
+    col_cpu_type    = find_col(vh, ["CPU Type", "Processor Type", "CPU Model"])
 
     hosts = []
     for _, row in vh.iterrows():
@@ -260,6 +325,7 @@ def parse_rvtools(xls, site_name):
         cpu      = safe(row[col_cpu])     if col_cpu     else ""
         mem      = safe(row[col_mem])     if col_mem     else ""
         svc      = safe(row[col_svc])     if col_svc     else ""
+        cpu_type = safe(row[col_cpu_type]) if col_cpu_type else ""
 
         # Abbreviate ESXi version to major.minor.patch
         esxi_short = esxi
@@ -292,6 +358,7 @@ def parse_rvtools(xls, site_name):
             "svc":      svc,
             "sockets":          sockets_val,
             "cores_per_socket": cores_val,
+            "cpu_type":         cpu_type,
         })
 
     # ── vInfo sheet (per-VM vCPU data) ──
@@ -360,6 +427,7 @@ def parse_liveoptics(xls, site_name):
     col_lo_sockets   = find_col(hosts_df, ["CPU Sockets", "Sockets"])
     col_lo_cores_cpu = find_col(hosts_df, ["Cores Per Socket", "Cores per CPU"])
     col_lo_vcpus     = find_col(hosts_df, ["Total vCPUs", "Virtual CPUs", "vCPUs"])
+    col_lo_cpu_type  = find_col(hosts_df, ["CPU Model", "Processor", "CPU Type"])
 
     # Performance sheet for CPU/Mem %
     perf_map = {}
@@ -413,6 +481,10 @@ def parse_liveoptics(xls, site_name):
             except (ValueError, TypeError):
                 pass
 
+        cpu_type_val = ""
+        if col_lo_cpu_type:
+            cpu_type_val = safe(row[col_lo_cpu_type])
+
         hosts.append({
             "hostname": hostname,
             "cluster":  safe(row.get("Cluster", "")) or "Default",
@@ -425,6 +497,7 @@ def parse_liveoptics(xls, site_name):
             "sockets":          sockets_val,
             "cores_per_socket": cores_val,
             "total_vcpus":      vcpus_val,
+            "cpu_type":         cpu_type_val,
         })
 
     clusters = {}
@@ -762,8 +835,11 @@ def generate_excalidraw(sites, vcf9_enabled=False):
                 label = "\n".join(lines)
 
                 stroke = p["host_stroke"]
-                if vcf9_enabled and "vcf9" in h and h["vcf9"]["status"] == "incompatible":
-                    stroke = "#E57373"
+                if vcf9_enabled and "vcf9" in h:
+                    if h["vcf9"]["status"] == "incompatible":
+                        stroke = "#E57373"
+                    elif h["vcf9"].get("cpu_status") == "deprecated":
+                        stroke = "#F0AD4E"
 
                 h_id = uid()
                 h_els = rect(h_id, hx, hy, HOST_W, host_h,
@@ -779,8 +855,8 @@ def generate_excalidraw(sites, vcf9_enabled=False):
 
     # VCF9 legend
     if vcf9_enabled:
-        legend_text = "VCF 9 Compatibility\n\u2705 VCF x.x Ready\n\u274C Not VCF9 Ready\n\u26A0\uFE0F VCF9 ? \u2014 model unknown"
-        legend_els = rect(uid(), x_cursor, CANVAS_Y, 220, 90,
+        legend_text = "VCF 9 Compatibility\n\u2705 VCF x.x Ready\n\u26A0\uFE0F CPU Deprecated (supported 9.x)\n\u274C Not VCF9 Ready / CPU Discontinued\n\u26A0\uFE0F VCF9 ? \u2014 model unknown"
+        legend_els = rect(uid(), x_cursor, CANVAS_Y, 260, 105,
                           bg="#FFF9E6", stroke="#D4A017",
                           text=legend_text, font_size=9,
                           text_color="#4A4A00", v_align="middle", rounded=8)
@@ -1143,10 +1219,13 @@ def generate():
         try:
             hcl_data = load_hcl()
             vcf9_lookup = build_vcf9_lookup(hcl_data)
+            cpu_rules = load_cpu_rules()
             for site in sites:
                 for chosts in site["clusters"].values():
                     for h in chosts:
                         h["vcf9"] = check_vcf9_compat(h["model"], vcf9_lookup)
+                        h["cpu_compat"] = check_cpu_compat(h.get("cpu_type", ""), cpu_rules)
+                        enrich_vcf9_with_cpu(h)
             vcf9_enabled = True
         except Exception:
             pass  # graceful degradation — continue without VCF9
@@ -1278,10 +1357,13 @@ def _parse_sites_for_vcf9(uploaded, names):
         return None, "No valid files found"
     hcl_data = load_hcl()
     vcf9_lookup = build_vcf9_lookup(hcl_data)
+    cpu_rules = load_cpu_rules()
     for site in sites:
         for chosts in site["clusters"].values():
             for h in chosts:
                 h["vcf9"] = check_vcf9_compat(h["model"], vcf9_lookup)
+                h["cpu_compat"] = check_cpu_compat(h.get("cpu_type", ""), cpu_rules)
+                enrich_vcf9_with_cpu(h)
     return sites, None
 
 
