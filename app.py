@@ -204,6 +204,7 @@ def build_vcf9_report(sites):
     """Build a VCF 9 readiness report from annotated sites."""
     rows = []
     compatible = incompatible = unknown = 0
+    compatible_ok = compatible_deprecated = 0
     for site in sites:
         for cluster_name, hosts in site["clusters"].items():
             for h in hosts:
@@ -222,6 +223,10 @@ def build_vcf9_report(sites):
                 })
                 if vcf9["status"] == "compatible":
                     compatible += 1
+                    if vcf9.get("cpu_status") == "deprecated":
+                        compatible_deprecated += 1
+                    else:
+                        compatible_ok += 1
                 elif vcf9["status"] == "incompatible":
                     incompatible += 1
                 else:
@@ -229,6 +234,8 @@ def build_vcf9_report(sites):
     return {
         "rows": rows,
         "compatible": compatible,
+        "compatible_ok": compatible_ok,
+        "compatible_deprecated": compatible_deprecated,
         "incompatible": incompatible,
         "unknown": unknown,
         "total": len(rows),
@@ -269,7 +276,7 @@ def vcf9_report_txt(report):
     lines = [
         "VCF 9 Readiness Report",
         "",
-        f"Total: {report['total']}  |  Compatible: {report['compatible']}  |  Not Compatible: {report['incompatible']}  |  Unknown: {report['unknown']}",
+        f"Total: {report['total']}  |  Compatible: {report['compatible']} ({report['compatible_ok']} OK · {report['compatible_deprecated']} CPU Deprecated)  |  Not Compatible: {report['incompatible']}  |  Unknown: {report['unknown']}",
         "",
         hdr_line,
         sep_line,

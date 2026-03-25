@@ -1039,6 +1039,7 @@ function renderLicenseReport() {
 function buildVcf9Report(sites) {
   const rows = [];
   let compatible = 0, incompatible = 0, unknown = 0;
+  let compatibleOk = 0, compatibleDeprecated = 0;
 
   for (const site of sites) {
     for (const [cluster, hosts] of Object.entries(site.clusters)) {
@@ -1052,14 +1053,19 @@ function buildVcf9Report(sites) {
           cpu_status: vcf9.cpu_status || '',
           cpu_family: vcf9.cpu_family || '',
         });
-        if (vcf9.status === 'compatible') compatible++;
+        if (vcf9.status === 'compatible') {
+          compatible++;
+          if (vcf9.cpu_status === 'deprecated') compatibleDeprecated++;
+          else compatibleOk++;
+        }
         else if (vcf9.status === 'incompatible') incompatible++;
         else unknown++;
       }
     }
   }
 
-  return { rows, compatible, incompatible, unknown, total: rows.length };
+  return { rows, compatible, compatible_ok: compatibleOk, compatible_deprecated: compatibleDeprecated,
+           incompatible, unknown, total: rows.length };
 }
 
 function renderVcf9Report() {
@@ -1068,9 +1074,12 @@ function renderVcf9Report() {
 
   // Summary
   const summary = document.getElementById('vcf9-summary');
+  const compatDetail = report.compatible_deprecated > 0
+    ? ` <span style="font-size:0.7em;font-weight:normal;color:#666">(${report.compatible_ok} OK · ${report.compatible_deprecated} CPU Deprecated)</span>`
+    : '';
   summary.innerHTML = `<div class="license-summary-box">
     <div class="summary-item"><span class="summary-label">Total Hosts</span><span class="summary-value">${report.total}</span></div>
-    <div class="summary-item"><span class="summary-label">Compatible</span><span class="summary-value vcf9-compatible">${report.compatible}</span></div>
+    <div class="summary-item"><span class="summary-label">Compatible</span><span class="summary-value vcf9-compatible">${report.compatible}${compatDetail}</span></div>
     <div class="summary-item"><span class="summary-label">Not Compatible</span><span class="summary-value vcf9-incompatible">${report.incompatible}</span></div>
     <div class="summary-item"><span class="summary-label">Unknown</span><span class="summary-value vcf9-unknown">${report.unknown}</span></div>
   </div>`;
@@ -1124,7 +1133,7 @@ function generateVcf9Txt(report) {
   const lines = [
     'VCF 9 Readiness Report',
     '',
-    `Total: ${report.total}  |  Compatible: ${report.compatible}  |  Not Compatible: ${report.incompatible}  |  Unknown: ${report.unknown}`,
+    `Total: ${report.total}  |  Compatible: ${report.compatible} (${report.compatible_ok} OK · ${report.compatible_deprecated} CPU Deprecated)  |  Not Compatible: ${report.incompatible}  |  Unknown: ${report.unknown}`,
     '',
     hdrLine,
     sep,
