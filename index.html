@@ -1084,31 +1084,95 @@ function renderVcf9Report() {
     <div class="summary-item"><span class="summary-label">Unknown</span><span class="summary-value vcf9-unknown">${report.unknown}</span></div>
   </div>`;
 
-  // Table
+  // Table with filtering and sorting
   const container = document.getElementById('vcf9-table-container');
-  let html = `<table class="license-table">
-    <thead><tr>
-      <th>Site</th><th>Cluster</th><th>Hostname</th>
-      <th>Model</th><th>ESXi</th><th>VCF 9 Status</th>
-      <th>CPU Type</th><th>CPU Status</th>
-    </tr></thead><tbody>`;
+  const colDefs = [
+    { key: 'site',       label: 'Site' },
+    { key: 'cluster',    label: 'Cluster' },
+    { key: 'hostname',   label: 'Hostname' },
+    { key: 'model',      label: 'Model' },
+    { key: 'esxi',       label: 'ESXi' },
+    { key: 'label',      label: 'VCF 9 Status' },
+    { key: 'cpu_type',   label: 'CPU Type' },
+    { key: '_cpu_display', label: 'CPU Status' },
+  ];
 
-  for (const r of report.rows) {
-    const cls = r.status === 'compatible' ? 'vcf9-compatible'
-              : r.status === 'incompatible' ? 'vcf9-incompatible' : 'vcf9-unknown';
-    const cpuCls = r.cpu_status === 'discontinued' ? 'vcf9-incompatible'
-                 : r.cpu_status === 'deprecated' ? 'vcf9-unknown' : '';
-    const cpuDisplay = r.cpu_family || r.cpu_status || '—';
-    html += `<tr>
-      <td>${r.site}</td><td>${r.cluster}</td><td>${r.hostname}</td>
-      <td>${r.model || '—'}</td><td>${r.esxi || '—'}</td>
-      <td class="${cls}">${r.label}</td>
-      <td>${r.cpu_type || '—'}</td>
-      <td class="${cpuCls}">${cpuDisplay}</td>
-    </tr>`;
+  // Enrich rows with display field
+  const enriched = report.rows.map(r => ({
+    ...r,
+    _cpu_display: r.cpu_family || r.cpu_status || '—',
+    _cls: r.status === 'compatible' ? 'vcf9-compatible'
+        : r.status === 'incompatible' ? 'vcf9-incompatible' : 'vcf9-unknown',
+    _cpuCls: r.cpu_status === 'discontinued' ? 'vcf9-incompatible'
+           : r.cpu_status === 'deprecated' ? 'vcf9-unknown' : '',
+  }));
+
+  let sortCol = null, sortAsc = true;
+  const filters = {};
+
+  function renderTable() {
+    let rows = enriched.filter(r => {
+      for (const [key, val] of Object.entries(filters)) {
+        if (val && !(r[key] || '').toLowerCase().includes(val.toLowerCase())) return false;
+      }
+      return true;
+    });
+    if (sortCol) {
+      rows.sort((a, b) => {
+        const va = (a[sortCol] || '').toLowerCase();
+        const vb = (b[sortCol] || '').toLowerCase();
+        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+    }
+
+    let html = `<table class="license-table">
+      <thead>
+        <tr>${colDefs.map(c => {
+          const arrow = sortCol === c.key ? (sortAsc ? ' \u25B2' : ' \u25BC') : '';
+          return `<th class="vcf9-sortable" data-col="${c.key}">${c.label}${arrow}</th>`;
+        }).join('')}</tr>
+        <tr>${colDefs.map(c =>
+          `<th style="padding:4px 6px;background:var(--primary)"><input type="text" data-filter="${c.key}" placeholder="Filter…" style="width:100%;padding:3px 6px;font-size:0.78rem;border:1px solid #ccc;border-radius:4px;box-sizing:border-box;" value="${filters[c.key] || ''}"></th>`
+        ).join('')}</tr>
+      </thead><tbody>`;
+
+    for (const r of rows) {
+      html += `<tr>
+        <td>${r.site}</td><td>${r.cluster}</td><td>${r.hostname}</td>
+        <td>${r.model || '—'}</td><td>${r.esxi || '—'}</td>
+        <td class="${r._cls}">${r.label}</td>
+        <td>${r.cpu_type || '—'}</td>
+        <td class="${r._cpuCls}">${r._cpu_display}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+    container.innerHTML = html;
+
+    // Bind sort
+    container.querySelectorAll('.vcf9-sortable').forEach(th => {
+      th.style.cursor = 'pointer';
+      th.addEventListener('click', () => {
+        const col = th.dataset.col;
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        renderTable();
+      });
+    });
+    // Bind filters
+    container.querySelectorAll('input[data-filter]').forEach(input => {
+      input.addEventListener('input', () => {
+        filters[input.dataset.filter] = input.value;
+        renderTable();
+      });
+      // Restore focus to the active filter input after re-render
+      if (document.activeElement === input) input.focus();
+    });
+    // Restore focus to the filter that triggered re-render
+    const active = container.querySelector(`input[data-filter="${Object.keys(filters).find(k => filters[k])}"]`);
+    if (active) { active.focus(); active.selectionStart = active.selectionEnd = active.value.length; }
   }
-  html += `</tbody></table>`;
-  container.innerHTML = html;
+
+  renderTable();
 }
 
 function generateVcf9Txt(report) {
