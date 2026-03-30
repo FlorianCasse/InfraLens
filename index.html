@@ -369,6 +369,12 @@ const CANVAS_X  = 60;
 const CANVAS_Y  = 60;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(s));
+  return d.innerHTML;
+}
+
 function uid() { return crypto.randomUUID(); }
 
 function findCol(headers, candidates) {
@@ -496,7 +502,7 @@ function ensureXlsxLoaded() {
       reject(new Error('Timed out loading XLSX parser — check your network connection'));
     }, 15000);
     const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js';
+    script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.20.3/dist/xlsx.full.min.js';
     script.async = true;
     script.onload = () => { clearTimeout(timeout); resolve(window.XLSX); };
     script.onerror = () => { clearTimeout(timeout); reject(new Error('Failed to load XLSX parser')); };
