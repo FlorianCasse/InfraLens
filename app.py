@@ -4,6 +4,7 @@ Flask web app — single file, no templates directory needed.
 Supports RVTools and LiveOptics .xlsx exports.
 """
 
+import html
 import io
 import json
 import os
@@ -14,6 +15,15 @@ import pandas as pd
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
+
+
+@app.after_request
+def set_security_headers(response):
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
 
 # ─── Color Palette (up to 6 sites) ───────────────────────────────────────────
 PALETTES = [
@@ -1208,13 +1218,13 @@ def generate():
     for i, f in enumerate(uploaded):
         ext = os.path.splitext(f.filename or '')[1].lower()
         if ext not in ALLOWED_EXT:
-            return f"Invalid file type: {f.filename}. Only .xlsx files are accepted.", 400
+            return f"Invalid file type: {html.escape(f.filename or 'unknown')}. Only .xlsx files are accepted.", 400
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
         except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+            return f"Error parsing {html.escape(f.filename or 'unknown')}: {str(e)}", 400
 
     if not sites:
         return "No valid RVTools files found", 400
@@ -1234,8 +1244,8 @@ def generate():
                         h["cpu_compat"] = check_cpu_compat(h.get("cpu_type", ""), cpu_rules)
                         enrich_vcf9_with_cpu(h)
             vcf9_enabled = True
-        except Exception:
-            pass  # graceful degradation — continue without VCF9
+        except (FileNotFoundError, json.JSONDecodeError, KeyError) as e:
+            print(f"Warning: VCF9 compatibility check skipped: {e}")
 
     try:
         excalidraw_json = generate_excalidraw(sites, vcf9_enabled=vcf9_enabled)
@@ -1278,13 +1288,13 @@ def license_csv():
     for i, f in enumerate(uploaded):
         ext = os.path.splitext(f.filename or '')[1].lower()
         if ext != '.xlsx':
-            return f"Invalid file type: {f.filename}. Only .xlsx files are accepted.", 400
+            return f"Invalid file type: {html.escape(f.filename or 'unknown')}. Only .xlsx files are accepted.", 400
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
         except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+            return f"Error parsing {html.escape(f.filename or 'unknown')}: {str(e)}", 400
 
     if not sites:
         return "No valid files found", 400
@@ -1319,13 +1329,13 @@ def license_txt():
     for i, f in enumerate(uploaded):
         ext = os.path.splitext(f.filename or '')[1].lower()
         if ext != '.xlsx':
-            return f"Invalid file type: {f.filename}. Only .xlsx files are accepted.", 400
+            return f"Invalid file type: {html.escape(f.filename or 'unknown')}. Only .xlsx files are accepted.", 400
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
         except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+            return f"Error parsing {html.escape(f.filename or 'unknown')}: {str(e)}", 400
 
     if not sites:
         return "No valid files found", 400
@@ -1353,13 +1363,13 @@ def _parse_sites_for_vcf9(uploaded, names):
     for i, f in enumerate(uploaded):
         ext = os.path.splitext(f.filename or '')[1].lower()
         if ext != '.xlsx':
-            return None, f"Invalid file type: {f.filename}. Only .xlsx files are accepted."
+            return None, f"Invalid file type: {html.escape(f.filename or 'unknown')}. Only .xlsx files are accepted."
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
         except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return None, f"Error parsing {f.filename}: {str(e)}"
+            return None, f"Error parsing {html.escape(f.filename or 'unknown')}: {str(e)}"
     if not sites:
         return None, "No valid files found"
     hcl_data = load_hcl()
@@ -1414,4 +1424,4 @@ if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
     print(f"Starting InfraLens server on http://localhost:{port}")
-    app.run(debug=False, host="0.0.0.0", port=port)
+    app.run(debug=False, host=os.environ.get("FLASK_HOST", "127.0.0.1"), port=port)
