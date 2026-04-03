@@ -1,91 +1,72 @@
 # Security Review: InfraLens
 
-**Date:** 2026-04-01
-**Reviewed by:** Claude (Automated Security Review)
-**Language/Framework:** Python / Flask
-**Dependency Manager:** pip (requirements.txt)
-
 ## Summary
-- Total findings: 8
-- Critical: 0 | High: 0 | Medium: 3 | Low: 5
-- PRs opened: 1 ([PR #6](https://github.com/FlorianCasse/InfraLens/pull/6))
-- Issues opened: 4
-  - [#7](https://github.com/FlorianCasse/InfraLens/issues/7) - Weak dependency version constraints
-  - [#8](https://github.com/FlorianCasse/InfraLens/issues/8) - Missing CSRF protection
-  - [#9](https://github.com/FlorianCasse/InfraLens/issues/9) - No rate limiting
-  - [#10](https://github.com/FlorianCasse/InfraLens/issues/10) - Thread-unsafe global state
-
-## Positive Controls Observed
-- No hardcoded secrets, API keys, or credentials
-- No SQL injection risks (uses pandas, not SQL)
-- No unsafe deserialization (no pickle, eval, exec)
-- File extension validation in place (.xlsx only)
-- 50MB upload limit configured
-- Debug mode is OFF in production
-- No template injection risks
-- No path traversal risks (filenames not used for filesystem access)
+- Total findings: 9
+- Critical: 0 | High: 0 | Medium: 3 | Low: 6
+- PRs opened: 0 (pending GitHub API access)
+- Issues opened: 0 (pending GitHub API access)
 
 ## Findings
 
 ### [MEDIUM] Missing Security Headers
-- **File:** `app.py` (all routes)
-- **Description:** No security headers set on responses (CSP, X-Frame-Options, X-Content-Type-Options, HSTS, X-XSS-Protection, Referrer-Policy). Exposes the application to clickjacking, MIME sniffing, and XSS.
-- **Remediation:** Add `@app.after_request` decorator to set security headers on all responses.
+- **File:** `app.py` (all route handlers)
+- **Description:** No security headers (CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy) are set on HTTP responses, leaving the application vulnerable to XSS, clickjacking, and MIME sniffing attacks.
+- **Remediation:** Add an `@app.after_request` handler that sets Content-Security-Policy, X-Content-Type-Options, X-Frame-Options, and Referrer-Policy headers.
 - **PR-ready:** yes
-- **Action taken:** PR #6 https://github.com/FlorianCasse/InfraLens/pull/6
+- **Action taken:** Branch `security/add-security-headers-and-fixes` pushed. PR pending.
 
 ### [MEDIUM] Overly Permissive Host Binding
 - **File:** `app.py` (line 1417)
-- **Description:** Application binds to `0.0.0.0`, accessible from any network interface. Increases attack surface in shared environments.
-- **Remediation:** Bind to `127.0.0.1` by default with `FLASK_HOST` env var override.
+- **Description:** Flask server binds to `0.0.0.0`, making the service accessible from any network interface. This increases attack surface in shared or cloud environments.
+- **Remediation:** Bind to `127.0.0.1` by default; allow override via `FLASK_HOST` environment variable.
 - **PR-ready:** yes
-- **Action taken:** PR #6 https://github.com/FlorianCasse/InfraLens/pull/6
+- **Action taken:** Branch `security/add-security-headers-and-fixes` pushed. PR pending.
 
-### [MEDIUM] Bare Exception Handler Silently Fails
+### [MEDIUM] Bare Exception Handler Silently Swallows Errors
 - **File:** `app.py` (lines 1237-1238)
-- **Description:** `except Exception: pass` swallows all errors during VCF9 compatibility check. Masks bugs, security issues, and file handling errors.
-- **Remediation:** Catch specific exceptions (`FileNotFoundError`, `json.JSONDecodeError`, `KeyError`) and log failures.
+- **Description:** A bare `except Exception: pass` catches ALL exceptions, masking bugs, security issues, and malformed JSON errors during VCF9 compatibility checks.
+- **Remediation:** Catch specific exceptions `(FileNotFoundError, json.JSONDecodeError, KeyError)` and log the error.
 - **PR-ready:** yes
-- **Action taken:** PR #6 https://github.com/FlorianCasse/InfraLens/pull/6
+- **Action taken:** Branch `security/add-security-headers-and-fixes` pushed. PR pending.
 
-### [LOW] Unvalidated Filenames in Error Messages
-- **File:** `app.py` (lines 1211, 1217, 1281, 1287, 1322, 1328, 1356, 1362)
-- **Description:** User-supplied `f.filename` embedded directly in error messages without HTML escaping.
-- **Remediation:** Sanitize with `html.escape(f.filename or 'unknown')`.
-- **PR-ready:** yes
-- **Action taken:** PR #6 https://github.com/FlorianCasse/InfraLens/pull/6
-
-### [LOW] Information Disclosure via Error Messages
-- **File:** `app.py` (lines 1217, 1243, 1287, 1328, 1362)
-- **Description:** Detailed exception messages from pandas/openpyxl returned directly to users, potentially revealing library versions and internal data formats.
-- **Remediation:** Return generic error messages; log details server-side.
-- **PR-ready:** yes
-- **Action taken:** PR #6 https://github.com/FlorianCasse/InfraLens/pull/6
-
-### [LOW] Weak Dependency Version Constraints
-- **File:** `requirements.txt` (lines 1-3)
-- **Description:** Tilde (`~=`) constraints allow broad version ranges. Non-reproducible builds and potential auto-install of CVE-affected versions.
-- **Remediation:** Pin exact versions or use a lock file.
-- **PR-ready:** no (requires testing with specific versions)
-- **Action taken:** Issue #7 https://github.com/FlorianCasse/InfraLens/issues/7
-
-### [LOW] Missing CSRF Protection on POST Routes
+### [LOW] No CSRF Protection on POST Routes
 - **File:** `app.py` (lines 1198, 1268, 1309, 1377, 1395)
-- **Description:** All POST routes lack CSRF token validation. Attacker could trigger file uploads via crafted webpage.
-- **Remediation:** Implement CSRF protection using Flask-WTF.
-- **PR-ready:** no (requires new dependency and frontend changes)
-- **Action taken:** Issue #8 https://github.com/FlorianCasse/InfraLens/issues/8
+- **Description:** POST routes lack CSRF token validation. Attackers could craft pages that trigger file uploads in users' browsers.
+- **Remediation:** Implement Flask-WTF CSRF protection with frontend token injection and backend validation.
+- **PR-ready:** no
+- **Action taken:** Issue pending.
 
-### [LOW] No Rate Limiting on Upload Endpoints
+### [LOW] No Rate Limiting
 - **File:** `app.py` (all POST routes)
-- **Description:** No rate limiting on any routes. Attacker could upload many 50MB files for resource exhaustion.
-- **Remediation:** Implement rate limiting using Flask-Limiter.
-- **PR-ready:** no (requires new dependency and configuration)
-- **Action taken:** Issue #9 https://github.com/FlorianCasse/InfraLens/issues/9
+- **Description:** No rate limiting on any endpoints. Combined with the 50MB upload limit, this allows resource exhaustion via repeated large file uploads.
+- **Remediation:** Implement Flask-Limiter with per-IP rate limits.
+- **PR-ready:** no
+- **Action taken:** Issue pending.
 
 ### [LOW] Thread-Unsafe Global State
 - **File:** `app.py` (line 1256)
-- **Description:** `app.config['_last_license_report']` stores reports in global state. Concurrent requests can overwrite each other's data.
-- **Remediation:** Use request-scoped storage or eliminate the cache.
-- **PR-ready:** no (requires architectural decision)
-- **Action taken:** Issue #10 https://github.com/FlorianCasse/InfraLens/issues/10
+- **Description:** License report stored in `app.config['_last_license_report']`, a global variable. Concurrent requests can overwrite each other's data in multi-threaded deployments.
+- **Remediation:** Use request-scoped storage or eliminate the global cache.
+- **PR-ready:** no
+- **Action taken:** Issue pending.
+
+### [LOW] Information Disclosure via Detailed Error Messages
+- **File:** `app.py` (lines 1211, 1217, 1243, 1287, 1328, 1362)
+- **Description:** Raw exception messages from pandas, openpyxl, and Flask are returned directly to users. This can reveal library versions, internal data formats, and stack traces.
+- **Remediation:** Return generic error messages to users; log details server-side.
+- **PR-ready:** no
+- **Action taken:** Issue pending.
+
+### [LOW] Unvalidated Filenames in Error Messages (XSS Risk)
+- **File:** `app.py` (lines 1211, 1217, 1281, 1287, 1322, 1328, 1356, 1362)
+- **Description:** User-supplied `f.filename` embedded directly in HTTP responses without HTML escaping. If responses are ever rendered as HTML, this creates XSS risk.
+- **Remediation:** Sanitize filenames with `html.escape()` in all error messages.
+- **PR-ready:** yes
+- **Action taken:** Branch `security/add-security-headers-and-fixes` pushed. PR pending.
+
+### [LOW] Weak Dependency Pinning
+- **File:** `requirements.txt`
+- **Description:** Dependencies use tilde (`~=`) version constraints instead of exact pinning. This allows automatic installation of potentially vulnerable patch versions.
+- **Remediation:** Use exact version pinning (e.g., `flask==3.0.5`) or maintain a `requirements-lock.txt`.
+- **PR-ready:** no
+- **Action taken:** Issue pending.
