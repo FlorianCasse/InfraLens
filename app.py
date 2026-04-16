@@ -1213,8 +1213,8 @@ def generate():
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return f"Error parsing {f.filename}. Ensure it is a valid RVTools or LiveOptics .xlsx export.", 400
 
     if not sites:
         return "No valid RVTools files found", 400
@@ -1239,8 +1239,8 @@ def generate():
 
     try:
         excalidraw_json = generate_excalidraw(sites, vcf9_enabled=vcf9_enabled)
-    except (ValueError, KeyError, TypeError) as e:
-        return f"Diagram generation error: {str(e)}", 500
+    except (ValueError, KeyError, TypeError):
+        return "Diagram generation failed. Please check your input files and try again.", 500
 
     # License calculation — return CSV alongside diagram if requested
     license_field = request.form.get('license', '').lower()
@@ -1283,8 +1283,8 @@ def license_csv():
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return f"Error parsing {f.filename}. Ensure it is a valid RVTools or LiveOptics .xlsx export.", 400
 
     if not sites:
         return "No valid files found", 400
@@ -1324,8 +1324,8 @@ def license_txt():
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return f"Error parsing {f.filename}. Ensure it is a valid RVTools or LiveOptics .xlsx export.", 400
 
     if not sites:
         return "No valid files found", 400
@@ -1358,8 +1358,8 @@ def _parse_sites_for_vcf9(uploaded, names):
         try:
             data = parse_file(f.read(), site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return None, f"Error parsing {f.filename}: {str(e)}"
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return None, f"Error parsing {f.filename}. Ensure it is a valid RVTools or LiveOptics .xlsx export."
     if not sites:
         return None, "No valid files found"
     hcl_data = load_hcl()
@@ -1410,8 +1410,18 @@ def vcf9_txt():
                      download_name="vcf9_readiness_report.txt")
 
 
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
+
+
 if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
+    host = os.environ.get("INFRALENS_HOST", "127.0.0.1")
     print(f"Starting InfraLens server on http://localhost:{port}")
-    app.run(debug=False, host="0.0.0.0", port=port)
+    app.run(debug=False, host=host, port=port)
