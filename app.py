@@ -13,7 +13,26 @@ from flask import Flask, request, send_file, Response
 import pandas as pd
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
+
+XLSX_MAGIC = b'PK\x03\x04'
+_MAX_USER_STR = 256  # max length for user-supplied strings passed to regex
+
+
+@app.after_request
+def security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'"
+    )
+    return response
 
 # ─── Color Palette (up to 6 sites) ───────────────────────────────────────────
 PALETTES = [
@@ -137,7 +156,7 @@ def _vcf9_label(releases):
 def check_vcf9_compat(model, lookup):
     if not model:
         return {'status': 'unknown', 'label': '\u26A0\uFE0F VCF9 ?'}
-    norm = normalize_model(model).lower()
+    norm = normalize_model(model[:_MAX_USER_STR]).lower()
     if norm in lookup:
         return {'status': 'compatible', 'label': _vcf9_label(lookup[norm])}
     for hcl_model, releases in lookup.items():
@@ -164,6 +183,7 @@ def check_cpu_compat(cpu_type, cpu_rules):
     """Check CPU type against KB 318697 deprecation/discontinuation lists."""
     if not cpu_type:
         return {"status": "unknown", "family": ""}
+    cpu_type = cpu_type[:_MAX_USER_STR]
     for entry in cpu_rules.get("discontinued", []):
         if re.search(entry["pattern"], cpu_type, re.I):
             return {"status": "discontinued", "family": entry["family"]}
@@ -1211,10 +1231,13 @@ def generate():
             return f"Invalid file type: {f.filename}. Only .xlsx files are accepted.", 400
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
-            data = parse_file(f.read(), site_name)
+            file_bytes = f.read()
+            if not file_bytes.startswith(XLSX_MAGIC):
+                return f"Invalid file: {f.filename} is not a valid XLSX file.", 400
+            data = parse_file(file_bytes, site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return f"Error parsing {f.filename}: invalid or unsupported file structure", 400
 
     if not sites:
         return "No valid RVTools files found", 400
@@ -1239,8 +1262,8 @@ def generate():
 
     try:
         excalidraw_json = generate_excalidraw(sites, vcf9_enabled=vcf9_enabled)
-    except (ValueError, KeyError, TypeError) as e:
-        return f"Diagram generation error: {str(e)}", 500
+    except (ValueError, KeyError, TypeError):
+        return "Diagram generation failed", 500
 
     # License calculation — return CSV alongside diagram if requested
     license_field = request.form.get('license', '').lower()
@@ -1252,9 +1275,6 @@ def generate():
         csv_content = license_report_csv(report)
         # Return as multipart: excalidraw JSON + license CSV
         # For simplicity, return just the excalidraw file; CSV available via /license-csv
-        # Store the report for the CSV endpoint
-        app.config['_last_license_report'] = report
-
     buf = io.BytesIO(excalidraw_json.encode("utf-8"))
     buf.seek(0)
     return send_file(
@@ -1281,10 +1301,13 @@ def license_csv():
             return f"Invalid file type: {f.filename}. Only .xlsx files are accepted.", 400
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
-            data = parse_file(f.read(), site_name)
+            file_bytes = f.read()
+            if not file_bytes.startswith(XLSX_MAGIC):
+                return f"Invalid file: {f.filename} is not a valid XLSX file.", 400
+            data = parse_file(file_bytes, site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return f"Error parsing {f.filename}: invalid or unsupported file structure", 400
 
     if not sites:
         return "No valid files found", 400
@@ -1322,10 +1345,13 @@ def license_txt():
             return f"Invalid file type: {f.filename}. Only .xlsx files are accepted.", 400
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
-            data = parse_file(f.read(), site_name)
+            file_bytes = f.read()
+            if not file_bytes.startswith(XLSX_MAGIC):
+                return f"Invalid file: {f.filename} is not a valid XLSX file.", 400
+            data = parse_file(file_bytes, site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return f"Error parsing {f.filename}: {str(e)}", 400
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return f"Error parsing {f.filename}: invalid or unsupported file structure", 400
 
     if not sites:
         return "No valid files found", 400
@@ -1356,10 +1382,13 @@ def _parse_sites_for_vcf9(uploaded, names):
             return None, f"Invalid file type: {f.filename}. Only .xlsx files are accepted."
         site_name = names[i] if i < len(names) else f.filename.replace(".xlsx", "")
         try:
-            data = parse_file(f.read(), site_name)
+            file_bytes = f.read()
+            if not file_bytes.startswith(XLSX_MAGIC):
+                return None, f"Invalid file: {f.filename} is not a valid XLSX file."
+            data = parse_file(file_bytes, site_name)
             sites.append(data)
-        except (ValueError, KeyError, pd.errors.ParserError) as e:
-            return None, f"Error parsing {f.filename}: {str(e)}"
+        except (ValueError, KeyError, pd.errors.ParserError):
+            return None, f"Error parsing {f.filename}: invalid or unsupported file structure"
     if not sites:
         return None, "No valid files found"
     hcl_data = load_hcl()
@@ -1413,5 +1442,6 @@ def vcf9_txt():
 if __name__ == "__main__":
     import sys
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 5000
-    print(f"Starting InfraLens server on http://localhost:{port}")
-    app.run(debug=False, host="0.0.0.0", port=port)
+    host = os.environ.get('INFRALENS_HOST', '127.0.0.1')
+    print(f"Starting InfraLens server on http://{host}:{port}")
+    app.run(debug=False, host=host, port=port)
