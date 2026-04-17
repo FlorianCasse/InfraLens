@@ -1,55 +1,61 @@
 # Security Review: infralens
 
-**Date:** 2026-04-16
+**Date:** 2026-04-17 (re-run)
 **Reviewer:** Claude (automated security review)
 **Language/Framework:** Python / Flask
 **Dependency Manager:** pip (requirements.txt)
 
-## Summary
-- Total findings: 4
-- Critical: 0 | High: 0 | Medium: 4 | Low: 0
-- PRs opened: 0
-- Issues opened: 4
-  - https://github.com/FlorianCasse/InfraLens/issues/36
-  - https://github.com/FlorianCasse/InfraLens/issues/37
-  - https://github.com/FlorianCasse/InfraLens/issues/38
-  - https://github.com/FlorianCasse/InfraLens/issues/39
+## Status: Findings Persist — 29 Open Issues Cover All Identified Risks
 
-## Findings
+This re-run confirms that the previously identified findings remain present in `app.py`. The repository already has **29 open issues** (labeled `Claude` and `security`) covering all common findings. No new issues were opened in this run to avoid duplication.
+
+## Summary
+- Total findings: 4 (unchanged from last run)
+- Critical: 0 | High: 0 | Medium: 4 | Low: 0
+- PRs opened this run: 0
+- Issues opened this run: 0 (existing issues already cover all findings)
+
+## Findings (all map to existing open issues)
 
 ### [MEDIUM] Missing security headers in Flask application
 - **File:** `app.py`
-- **Description:** The Flask application does not set security response headers (X-Content-Type-Options, X-Frame-Options, CSP, Referrer-Policy, HSTS). Flask does not add these by default.
-- **Remediation:** Add an `@app.after_request` handler to set security headers on all responses.
-- **PR-ready:** no (requires modifying the large monolithic app.py file — exact code change provided in issue)
-- **Action taken:** Issue #36 https://github.com/FlorianCasse/InfraLens/issues/36
+- **Status:** No `@app.after_request` handler for security headers found.
+- **Existing issues:** #36 (this reviewer's prior run) — no other duplicates
+- **PR-ready:** no (large monolithic file; remediation code provided in the issue)
 
 ### [MEDIUM] No authentication on file upload endpoints
-- **File:** `app.py` (routes: `/generate`, `/license-csv`, `/license-txt`, `/vcf9-csv`, `/vcf9-txt`)
-- **Description:** All file upload and processing endpoints are unauthenticated. Anyone who can reach the server can upload .xlsx files for processing.
-- **Remediation:** Add network-level access control (reverse proxy auth) or application-level authentication.
-- **PR-ready:** no (architectural decision needed)
-- **Action taken:** Issue #37 https://github.com/FlorianCasse/InfraLens/issues/37
+- **Status:** Endpoints `/generate`, `/license-csv`, `/license-txt`, `/vcf9-csv`, `/vcf9-txt` all unauthenticated.
+- **Existing issues:** #27, #37 (duplicates)
+- **PR-ready:** no (architectural decision)
 
 ### [MEDIUM] No rate limiting on file upload endpoints
-- **File:** `app.py`
-- **Description:** No rate limiting is configured. Upload endpoints can be flooded to cause resource exhaustion.
-- **Remediation:** Add `flask-limiter` with appropriate rate limits.
+- **Status:** No `flask-limiter` or equivalent.
+- **Existing issues:** #9, #13, #18, #34, #38 (multiple duplicates)
 - **PR-ready:** no (requires new dependency)
-- **Action taken:** Issue #38 https://github.com/FlorianCasse/InfraLens/issues/38
 
 ### [MEDIUM] No CSRF protection on POST endpoints
-- **File:** `app.py`
-- **Description:** POST endpoints lack CSRF tokens. If authentication is later added, this becomes exploitable.
-- **Remediation:** Integrate `flask-wtf` for CSRF protection.
-- **PR-ready:** no (requires new dependency and form changes)
-- **Action taken:** Issue #39 https://github.com/FlorianCasse/InfraLens/issues/39
+- **Status:** No `flask-wtf` or CSRF tokens.
+- **Existing issues:** #8, #12, #17, #29, #39 (multiple duplicates)
+- **PR-ready:** no (requires new dependency)
 
-## Areas Checked (No Issues Found)
-- **Hardcoded secrets:** No API keys, tokens, or credentials found in source
-- **Debug mode:** `app.run(debug=False)` is correctly set in the `__main__` guard
-- **File upload security:** Only `.xlsx` files accepted; 50 MB upload limit enforced; file content parsed with pandas (not executed)
-- **Dependency versions:** `flask~=3.0`, `pandas~=2.0`, `openpyxl~=3.1` — approximate version pinning is reasonable; no known critical CVEs
-- **Injection risks:** No SQL, command injection, or path traversal vectors found; file parsing uses pandas which handles xlsx safely
-- **Template injection:** No Jinja2 templates used; HTML is hardcoded in a Python string (no user input interpolation)
-- **Insecure deserialization:** No pickle, eval, or exec usage found
+## Other Open Issues Already Tracking Additional Findings
+
+The following findings from prior reviews are also tracked and remain valid:
+- #19, #16, #7: Weak dependency pinning (`flask~=3.0`, etc.) — LOW
+- #15: Information disclosure via detailed error messages — LOW
+- #14, #10: Thread-unsafe global state in `app.config['_last_license_report']` — LOW
+- #21: Large inline HTML template duplicates `index.html` — LOW
+- #20: GitHub Pages deploys `dev` branch — LOW
+- #24, #30: File validation by extension only, no magic byte check — MEDIUM/HIGH
+- #25: Excalidraw loaded from dev build — MEDIUM
+- #26, #31: 50 MB upload limit may allow resource exhaustion — LOW/HIGH
+- #32: No CORS restrictions — MEDIUM
+- #33: CDN libraries loaded without SRI — MEDIUM
+- #35: No logging or audit trail — LOW
+
+## Recommendation
+
+The issue tracker has accumulated **29 open security issues**. Many are duplicates from repeated automated reviews. Suggest:
+1. **Triage and consolidate** — close duplicate issues
+2. **Pick 2-3 highest-impact items** to fix (security headers, file magic-byte validation, rate limiting)
+3. **Configure a security policy** (`SECURITY.md`) so future scans don't re-create duplicates
