@@ -16,6 +16,7 @@ app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
 
 XLSX_MAGIC = b'PK\x03\x04'
+_MAX_USER_STR = 256  # max length for user-supplied strings passed to regex
 
 
 @app.after_request
@@ -155,7 +156,7 @@ def _vcf9_label(releases):
 def check_vcf9_compat(model, lookup):
     if not model:
         return {'status': 'unknown', 'label': '\u26A0\uFE0F VCF9 ?'}
-    norm = normalize_model(model).lower()
+    norm = normalize_model(model[:_MAX_USER_STR]).lower()
     if norm in lookup:
         return {'status': 'compatible', 'label': _vcf9_label(lookup[norm])}
     for hcl_model, releases in lookup.items():
@@ -182,6 +183,7 @@ def check_cpu_compat(cpu_type, cpu_rules):
     """Check CPU type against KB 318697 deprecation/discontinuation lists."""
     if not cpu_type:
         return {"status": "unknown", "family": ""}
+    cpu_type = cpu_type[:_MAX_USER_STR]
     for entry in cpu_rules.get("discontinued", []):
         if re.search(entry["pattern"], cpu_type, re.I):
             return {"status": "discontinued", "family": entry["family"]}
