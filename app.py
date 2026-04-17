@@ -13,7 +13,7 @@ from flask import Flask, request, send_file, Response
 import pandas as pd
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB upload limit
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50 MB upload limit
 
 XLSX_MAGIC = b'PK\x03\x04'
 _MAX_USER_STR = 256  # max length for user-supplied strings passed to regex
